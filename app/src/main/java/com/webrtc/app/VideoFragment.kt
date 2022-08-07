@@ -30,6 +30,8 @@ class VideoFragment: Fragment() {
 
         val videoCapture = createVideoCaptuer()
 
+        val videoSource = peerConnectionFactory.createVideoSource(videoCapture?.isScreencast)
+
     }
 
     /**
@@ -60,5 +62,20 @@ class VideoFragment: Fragment() {
                 }
             }
         }
+
+        // 전면 카메라가 없으면 다른 카메라가 있는지 확인
+        Logging.d(TAG, "Looking for other cameras.")
+        for (deviceName in deviceNames) {
+            if (!enumerator.isFrontFacing(deviceName)) {
+                Logging.d(TAG, "Creating other camera capturer.")
+                val videoCapturer: VideoCapturer? = enumerator.createCapturer(deviceName, null)
+                if (videoCapturer != null) {
+                    return videoCapturer
+                }
+            }
+        }
+
+        return null
+    }
 
 }
