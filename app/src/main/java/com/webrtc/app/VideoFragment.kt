@@ -1,8 +1,7 @@
 package com.webrtc.app
 
-import android.media.projection.MediaProjection
 import android.os.Bundle
-import android.util.Log
+import android.util.DisplayMetrics
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -18,26 +17,66 @@ class VideoFragment: Fragment() {
 
     //========  webRTC 변수 START ========//
     private val peerConnectionFactory by lazy { PeerConnectionFactory.builder().createPeerConnectionFactory() }
+    //========  webRTC 변수 END ========//
+
+    //========  비디오 속성 변수 START ========//
+    private val videoCapturer by lazy { createVideoCapturer() }
+    private val videoSource by lazy { videoCapturer?.let { peerConnectionFactory.createVideoSource(it.isScreencast) } }
+    private val videoConstraints by lazy { MediaConstraints() }
+    private val rootEglBase: EglBase by lazy { EglBase.create() }
+    private val surfaceTextureHelper by lazy { SurfaceTextureHelper.create("CaptureThread", rootEglBase.eglBaseContext) }
+    private lateinit var localVideoTrack: VideoTrack
+    //========  비디오 속성 변수 END ========//
+
+    //========  오디오 속성 변수 START ========//
+    private val audioConstraints by lazy { MediaConstraints() }
+    private val audioSource by lazy { peerConnectionFactory.createAudioSource(audioConstraints) }
+    private val localAudioTrack by lazy { peerConnectionFactory.createAudioTrack("101", audioSource) }
+    //========  오디오 속성 변수 END ========//
+
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
 
-        initPeerConnection()
+        initLocalVideo()
+
+        initLocalAudio()
 
         return binding.root
     }
 
-    private fun initPeerConnection() {
+    private fun initLocalVideo() {
 
-        val videoCapture = createVideoCaptuer()
+        videoCapturer?.initialize(surfaceTextureHelper, context, videoSource?.capturerObserver)
+            ?: AppData.debug(TAG, "initLocalVideo() : videoCapture is null")
 
-        val videoSource = peerConnectionFactory.createVideoSource(videoCapture?.isScreencast)
+        localVideoTrack = peerConnectionFactory.createVideoTrack("100", videoSource)
+
+    }
+
+    private fun initLocalAudio() {
+
+        localAudioTrack.setEnabled(true)
+
+        audioConstraints.mandatory.add(MediaConstraints.KeyValuePair("googleEchoCancellation", "true"))
+        audioConstraints.mandatory.add(MediaConstraints.KeyValuePair("googleAutoGainControl", "true"))
+        audioConstraints.mandatory.add(MediaConstraints.KeyValuePair("googleHighpassFilter", "true"))
+        audioConstraints.mandatory.add(MediaConstraints.KeyValuePair("googleNoiseSuppression", "true"))
+        audioConstraints.mandatory.add(MediaConstraints.KeyValuePair("levelControl", "true"))
+
+    }
+
+    private fun startLocalMedia() {
+
+        videoCapturer?.let {
+            val displayMetrics = DisplayMetrics()
+        }
 
     }
 
     /**
      * VideoCapturer 객체 생성
      */
-    private fun createVideoCaptuer(): VideoCapturer? {
+    private fun createVideoCapturer(): VideoCapturer? {
         var capturer: VideoCapturer? = null
         capturer =
             if (Camera2Enumerator.isSupported(activity)) {
