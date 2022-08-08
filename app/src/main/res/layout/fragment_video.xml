@@ -6,7 +6,7 @@
     android:layout_height="match_parent">
 
     <org.webrtc.SurfaceViewRenderer
-        android:id="@+id/localVideo"
+        android:id="@+id/localVideoView"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
