@@ -1,18 +1,12 @@
 package com.webrtc.app
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.DisplayMetrics
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Toast
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
-import com.webrtc.app.AppData.showToast
 import com.webrtc.app.databinding.FragmentVideoBinding
 import org.webrtc.*
 
@@ -30,7 +24,7 @@ class VideoFragment: Fragment() {
     //========  비디오 변수 START ========//
     private val videoCapturer by lazy { createVideoCapturer() }
     private val videoSource by lazy { videoCapturer?.let { peerConnectionFactory.createVideoSource(it.isScreencast) } }
-    private val videoConstraints by lazy { MediaConstraints() }
+//    private val videoConstraints by lazy { MediaConstraints() }
     private val rootEglBase: EglBase by lazy { EglBase.create() }
     private val surfaceTextureHelper by lazy { SurfaceTextureHelper.create("CaptureThread", rootEglBase.eglBaseContext) }
     private lateinit var localVideoTrack: VideoTrack
@@ -56,6 +50,7 @@ class VideoFragment: Fragment() {
     }
 
     private fun initFragment() {
+        //
 
         initFactory()
 
