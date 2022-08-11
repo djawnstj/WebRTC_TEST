@@ -1,5 +1,7 @@
 package com.webrtc.app
 
+import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.util.DisplayMetrics
 import android.view.LayoutInflater
@@ -7,7 +9,9 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
+import com.google.gson.Gson
 import com.webrtc.app.databinding.FragmentVideoBinding
+import org.json.JSONObject
 import org.webrtc.*
 
 
@@ -40,6 +44,11 @@ class VideoFragment: Fragment() {
     private val localAudioTrack by lazy { peerConnectionFactory.createAudioTrack("101", audioSource) }
     //========  오디오 변수 END ========//
 
+    var userId = ""
+    var receiverId = ""
+
+    val gson = Gson()
+
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
 
@@ -50,7 +59,6 @@ class VideoFragment: Fragment() {
     }
 
     private fun initFragment() {
-        //
 
         initFactory()
 
@@ -62,8 +70,91 @@ class VideoFragment: Fragment() {
 
         startLocalVideoCapturer()
 
+        connectToRedis()
+
     }
 
+    /**
+     * 서비스를 통해 레디스 서버 연결
+     */
+    fun connectToRedis() {
+        AppData.debug(TAG, "connectToRedis called.")
+
+        context?.apply {
+            val serviceIntent = Intent(this, RedisService::class.java)
+            serviceIntent.putExtra("command", "connect")
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                this.startForegroundService(serviceIntent)
+            } else {
+                this.startService(serviceIntent)
+            }
+        }
+
+    }
+
+    /**
+     * 서비스를 통해 레디스 서버 연결 해제
+     */
+    fun disconnectFromRedis() {
+        context?.apply {
+            val serviceIntent = Intent(this, RedisService::class.java)
+            serviceIntent.putExtra("command", "disconnect")
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                this.startForegroundService(serviceIntent)
+            } else {
+                this.startService(serviceIntent)
+            }
+        }
+
+    }
+
+    /**
+     * 서비스를 통해 데이터 전송
+     */
+    fun sendData(data:String) {
+        context?.apply {
+            val serviceIntent = Intent(this, RedisService::class.java)
+            serviceIntent.putExtra("command", "send")
+            serviceIntent.putExtra("data", data)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                this.startForegroundService(serviceIntent)
+            } else {
+                this.startService(serviceIntent)
+            }
+        }
+
+    }
+
+
+    fun onRedisConnection(command:String?, channel:String?, data:String?) {
+
+        if (AppData.startInviteFlag) {
+            if (command == "subscribed") {
+                sendInvite("video")
+
+                AppData.startInviteFlag = false
+            }
+        }
+    }
+
+    fun onRedisData(command:String?, channel:String?, data:String?) {
+
+        // 세션 메시지 처리
+        data?.apply {
+            AppData.error(TAG, "redis message : $command, $channel, \n$data")
+        }
+
+    }
+
+    fun onRedisLog(command:String?, channel:String?, data:String?) {
+        AppData.debug(TAG, "onRedisLog called : ${command}, ${channel}, ${data}")
+
+    }
+
+    /** PeerConnectionFactory 초기화 */
     private fun initFactory() {
 
         AppData.debug(TAG, "initFactory() called.")
@@ -78,6 +169,7 @@ class VideoFragment: Fragment() {
 
     }
 
+    /** WebRTC SurfaceViewRenderer 초기화 */
     private fun initVideoViews() {
 
         try {
@@ -94,6 +186,7 @@ class VideoFragment: Fragment() {
 
     }
 
+    /** local videoCapturer 초기화 */
     private fun initLocalVideo() {
 
         AppData.debug(TAG, "initLocalVideo() called.")
@@ -105,6 +198,7 @@ class VideoFragment: Fragment() {
 
     }
 
+    /** local audio 초기화 */
     private fun initLocalAudio() {
 
         AppData.debug(TAG, "initLocalAudio() called.")
@@ -119,6 +213,7 @@ class VideoFragment: Fragment() {
 
     }
 
+    /** 영상 캡처 시작 */
     private fun startLocalVideoCapturer() {
 
         AppData.debug(TAG, "startLocalVideoCapturer() called.")
@@ -178,5 +273,387 @@ class VideoFragment: Fragment() {
 
         return null
     }
+
+    //===== 세션 메시지 START =====//
+
+    /**
+     * Step 1) Invite 전송
+     * A -> B
+     *
+     * video : 일반, screen : 화면공유
+     */
+    fun sendInvite(category:String) {
+
+        try {
+            val sessionId = createRequestCode()
+            val requestCode = createRequestCode()
+            val output = JSONObject()
+            output.put("sessionId", sessionId)
+            output.put("requestCode", requestCode)
+            output.put("userId", userId)
+            output.put("sender", userId)
+            output.put("receiver", receiverId)
+            output.put("command", "session")
+            output.put("method", "invite")
+            output.put("code", "100")
+            output.put("category", category)
+
+            output.put("data", "")
+
+            AppData.debug(TAG, "서버로 보낼 데이터 : $output")
+
+            sendData(output.toString())
+
+            AppData.callStatus = "ringing"
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+    }
+
+    /**
+     * Step 2) Ringing 전송
+     * B -> A
+     */
+    fun sendRinging(message: SessionMessage) {
+        //if (connStatus == MediaDataThread.DISCONNECTED) {
+        //    Log.d(MediaDataThread.TAG, "서버에 연결되어 있지 않습니다. 먼저 서버에 연결하세요.")
+        //    return
+        //}
+        try {
+            val requestCode = createRequestCode()
+            val output = JSONObject()
+            output.put("sessionId", message.sessionId)
+            output.put("requestCode", requestCode)
+            output.put("userId", userId)
+            output.put("sender", userId)
+            output.put("receiver", message.sender)
+            output.put("command", "session")
+            output.put("method", "ringing")
+            output.put("code", "180")
+            output.put("category", message.category)
+            output.put("data", "")
+            AppData.debug(TAG, "서버로 보낼 데이터 : $output")
+            sendData(output.toString())
+            //callStatus = "ringing"
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * Step 3) Accept(ok) 전송
+     * A -> B
+     */
+    fun sendAccept(message: SessionMessage) {
+        //if (connStatus == MediaDataThread.DISCONNECTED) {
+        //    Log.d(MediaDataThread.TAG, "서버에 연결되어 있지 않습니다. 먼저 서버에 연결하세요.")
+        //    return
+        //}
+        try {
+            //val message = messageReceived
+            val requestCode = createRequestCode()
+            val output = JSONObject()
+            output.put("sessionId", message!!.sessionId)
+            output.put("requestCode", requestCode)
+            output.put("userId", userId)
+            output.put("sender", userId)
+            output.put("receiver", message.sender)
+            output.put("command", "session")
+            output.put("method", "ok")
+            output.put("code", "200")
+            output.put("category", message.category)
+
+            output.put("data", "")
+
+
+            AppData.debug(TAG, "서버로 보낼 데이터 : $output")
+            sendData(output.toString())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * Step 4) Ack 전송
+     * B -> A
+     */
+    fun sendAck(message: SessionMessage) {
+        //if (connStatus == MediaDataThread.DISCONNECTED) {
+        //    Log.d(MediaDataThread.TAG, "서버에 연결되어 있지 않습니다. 먼저 서버에 연결하세요.")
+        //    return
+        //}
+        try {
+            val requestCode = createRequestCode()
+            val output = JSONObject()
+            output.put("sessionId", message.sessionId)
+            output.put("requestCode", requestCode)
+            output.put("userId", userId)
+            output.put("sender", userId)
+            output.put("receiver", message.sender)
+            output.put("command", "session")
+            output.put("method", "ack")
+            output.put("code", "210")
+            output.put("category", message.category)
+            output.put("data", "")
+
+            AppData.debug(TAG, "서버로 보낼 데이터 : $output")
+            sendData(output.toString())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * End Step 1) Bye 전송
+     * A -> B
+     */
+    fun sendBye(category: String?) {
+        //if (connStatus == MediaDataThread.DISCONNECTED) {
+        //    Log.d(MediaDataThread.TAG, "서버에 연결되어 있지 않습니다. 먼저 서버에 연결하세요.")
+        //    return
+        //}
+        try {
+            val requestCode = createRequestCode()
+            val output = JSONObject()
+            output.put("sessionId", AppData.sessionId)
+            output.put("requestCode", requestCode)
+            output.put("userId", userId)
+            output.put("sender", userId)
+            output.put("receiver", receiverId)
+            output.put("command", "session")
+            output.put("method", "bye")
+            output.put("code", "400")
+            output.put("category", category)
+            output.put("data", "")
+            AppData.debug(TAG, "서버로 보낼 데이터 : $output")
+            sendData(output.toString())
+            //callStatus = "bye"
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * End Step 2) Ok 전송
+     * B -> A
+     */
+    fun sendOk(message: SessionMessage) {
+        //if (connStatus == MediaDataThread.DISCONNECTED) {
+        //    Log.d(MediaDataThread.TAG, "서버에 연결되어 있지 않습니다. 먼저 서버에 연결하세요.")
+        //    return
+        //}
+        try {
+            val requestCode = createRequestCode()
+            val output = JSONObject()
+            output.put("sessionId", message.sessionId)
+            output.put("requestCode", requestCode)
+            output.put("userId", userId)
+            output.put("sender", userId)
+            output.put("receiver", message.sender)
+            output.put("command", "session")
+            output.put("method", "ok")
+            output.put("code", "200")
+            output.put("category", message.category)
+            output.put("data", "")
+
+            AppData.debug(TAG, "서버로 보낼 데이터 : $output")
+            sendData(output.toString())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    // MIKE START 220429
+    // OK --> BYE_OK로 수정
+    /**
+     * End Step 2) BYE_OK 전송
+     * B -> A
+     */
+    fun sendByeOk(message: SessionMessage) {
+        //if (connStatus == MediaDataThread.DISCONNECTED) {
+        //    Log.d(MediaDataThread.TAG, "서버에 연결되어 있지 않습니다. 먼저 서버에 연결하세요.")
+        //    return
+        //}
+        try {
+            val requestCode = createRequestCode()
+            val output = JSONObject()
+            output.put("sessionId", message.sessionId)
+            output.put("requestCode", requestCode)
+            output.put("userId", userId)
+            output.put("sender", userId)
+            output.put("receiver", message.sender)
+            output.put("command", "session")
+            output.put("method", "bye_ok")
+            output.put("code", "200")
+            output.put("category", message.category)
+            output.put("data", "")
+            AppData.debug(TAG, "서버로 보낼 데이터 : $output")
+            sendData(output.toString())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+
+    /**
+     * INFO 전송
+     */
+    fun sendInfo(sessionId:String, userId:String, videoEnabled:String, audioEnabled:String, category:String) {
+        try {
+            val requestCode = createRequestCode()
+            val output = JSONObject()
+            output.put("sessionId", sessionId)
+            output.put("requestCode", requestCode)
+            output.put("userId", userId)
+            output.put("sender", userId)
+            output.put("receiver", "")
+            output.put("command", "session")
+            output.put("method", "info")
+            output.put("code", "510")
+            output.put("category", category)
+            output.put("data", "")
+            output.put("videoEnabled", videoEnabled)
+            output.put("audioEnabled", audioEnabled)
+            AppData.debug(TAG, "서버로 보낼 데이터 : $output")
+            sendData(output.toString())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * ACTION 전송
+     */
+    fun sendAction(sessionId:String, userId:String, receiver:String, method:String, data:String) {
+        try {
+            val requestCode = createRequestCode()
+            val output = JSONObject()
+            output.put("sessionId", sessionId)
+            output.put("requestCode", requestCode)
+            output.put("userId", userId)
+            output.put("sender", userId)
+            output.put("receiver", receiver)
+            output.put("command", "action")
+            output.put("method", method)
+            output.put("code", "510")
+            output.put("category", "")
+            output.put("data", data)
+            AppData.debug(TAG, "서버로 보낼 데이터 : $output")
+            sendData(output.toString())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * ACTION (launch) 전송
+     */
+    fun sendLaunchAction(sessionId:String, userId:String, receiver:String, method:String, packageName:String, activityName:String, paramKey:String, paramValue:String) {
+        try {
+            val requestCode = createRequestCode()
+            val output = JSONObject()
+            output.put("sessionId", sessionId)
+            output.put("requestCode", requestCode)
+            output.put("userId", userId)
+            output.put("sender", userId)
+            output.put("receiver", receiver)
+            output.put("command", "action")
+            output.put("method", method)
+            output.put("code", "510")
+            output.put("category", "")
+            output.put("packageName", packageName)
+            output.put("activityName", activityName)
+            output.put("paramKey", paramKey)
+            output.put("paramValue", paramValue)
+            AppData.debug(TAG, "서버로 보낼 데이터 : $output")
+            sendData(output.toString())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * sdp 전송
+     */
+    fun sendSdp(message: SessionMessage, sessionDescription: SessionDescription) {
+        //if (connStatus == MediaDataThread.DISCONNECTED) {
+        //    Log.d(MediaDataThread.TAG, "서버에 연결되어 있지 않습니다. 먼저 서버에 연결하세요.")
+        //    return
+        //}
+        var sdp =
+            "{" + "\"" + "type" + "\"" + ":" + "\"" + sessionDescription.type.canonicalForm() + "\","
+        sdp += "\"" + "sdp" + "\"" + ":" + "\"" + sessionDescription.description + "\"" + "}"
+        try {
+            val sdpObject = JSONObject()
+            sdpObject.put("type", sessionDescription.type.canonicalForm())
+            sdpObject.put("sdp", sessionDescription.description)
+            val requestCode = createRequestCode()
+            val output = JSONObject()
+            output.put("sessionId", message.sessionId)
+            output.put("requestCode", requestCode)
+            output.put("userId", userId)
+            output.put("sender", userId)
+            output.put("receiver", message.sender)
+            output.put("command", "session")
+            output.put("method", "sdp")
+            output.put("code", "310")
+            output.put("category", message.category)
+            output.put("data", sdpObject)
+            AppData.debug(TAG, "서버로 보낼 데이터 : $output")
+            sendData(output.toString())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * candidate 전송
+     */
+    fun sendCandidate(message: SessionMessage, iceCandidate: IceCandidate) {
+        //if (connStatus == MediaDataThread.DISCONNECTED) {
+        //    Log.d(MediaDataThread.TAG, "서버에 연결되어 있지 않습니다. 먼저 서버에 연결하세요.")
+        //    return
+        //}
+        try {
+            val candidateObject = JSONObject()
+            candidateObject.put("type", "candidate")
+            candidateObject.put("label", iceCandidate.sdpMLineIndex)
+            candidateObject.put("id", iceCandidate.sdpMid)
+            candidateObject.put("candidate", iceCandidate.sdp)
+            val requestCode = createRequestCode()
+            val output = JSONObject()
+            output.put("sessionId", message.sessionId)
+            output.put("requestCode", requestCode)
+            output.put("userId", userId)
+            output.put("sender", userId)
+            output.put("receiver", message.sender)
+            output.put("command", "session")
+            output.put("method", "candidate")
+            output.put("code", "320")
+            output.put("category", message.category)
+            output.put("data", candidateObject)
+            AppData.debug(TAG, "서버로 보낼 데이터 : $output")
+            sendData(output.toString())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+
+    /**
+     * Create a new request id
+     */
+    fun createRequestCodeLong(): Long {
+        return AppData.counter.getAndIncrement()
+    }
+
+    fun createRequestCode(): String {
+        return createRequestCodeLong().toString()
+    }
+
+
+    //===== 세션 메시지 END =====//
 
 }

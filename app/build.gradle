@@ -5,6 +5,9 @@ plugins {
 
 android {
     compileSdk 32
+    packagingOptions {
+        resources.excludes.add("META-INF/*")
+    }
 
     defaultConfig {
         applicationId "com.webrtc.app"
@@ -44,6 +47,17 @@ dependencies {
     androidTestImplementation 'androidx.test.ext:junit:1.1.3'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.4.0'
 
+    // WebRTC
     implementation("com.infobip:google-webrtc:1.0.35530")
+
+    // 레디스 처리를 위한 Lettuce
+    implementation 'io.lettuce:lettuce-core:6.1.8.RELEASE'
+
+    // retrofit
+    implementation 'com.squareup.retrofit2:converter-gson:2.9.0'
+
+    // 코루틴
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.5.2'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.1'
 
 }
