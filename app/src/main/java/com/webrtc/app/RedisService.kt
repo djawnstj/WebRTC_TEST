@@ -409,6 +409,7 @@ class RedisService: Service() {
     }
 
     override fun onBind(p0: Intent?): IBinder? {
+        TODO("Return the communication channel to the service.")
     }
 
 }
